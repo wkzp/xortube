@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XOR Video Player</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .input-section {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+        }
+        label {
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            padding: 12px 20px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #3367d6;
+        }
+        .player-section {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        #videoContainer {
+            position: relative;
+            width: 100%;
+            margin: 0 auto;
+        }
+        #resultCanvas {
+            width: 100%;
+            background-color: #000;
+            display: block;
+            margin: 0 auto;
+        }
+        .hidden {
+            display: none;
+        }
+        .instructions {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-left: 4px solid #4285f4;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>XOR Video Player</h1>
+        
+        <div class="input-section">
+            <div class="input-group">
+                <label for="video1">YouTube Video 1 URL:</label>
+                <input type="text" id="video1" placeholder="https://www.youtube.com/watch?v=..." />
+            </div>
+            
+            <div class="input-group">
+                <label for="video2">YouTube Video 2 URL:</label>
+                <input type="text" id="video2" placeholder="https://www.youtube.com/watch?v=..." />
+            </div>
+            
+            <button id="loadVideos">Load Videos</button>
+        </div>
+        
+        <div id="playerSection" class="player-section hidden">
+            <div id="videoContainer">
+                <canvas id="resultCanvas"></canvas>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h3>Как это работает:</h3>
+            <p>Этот плеер загружает два видео с YouTube и отображает их через операцию попиксельного XOR.</p>
+            <p>XOR (исключающее ИЛИ) — это битовая операция, которая создаёт интересные визуальные эффекты при наложении двух видеопотоков.</p>
+        </div>
+    </div>
+
+    <!-- YouTube IFrame API -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script>
+        // Глобальные переменные для хранения состояния
+        let player1, player2;
+        let canvas, context;
+        let video1Ready = false;
+        let video2Ready = false;
+        let animationFrameId;
+        
+        // Инициализация YouTube плееров
+        function onYouTubeIframeAPIReady() {
+            document.getElementById('loadVideos').addEventListener('click', loadVideos);
+        }
+        
+        function loadVideos() {
+            const video1Url = document.getElementById('video1').value;
+            const video2Url = document.getElementById('video2').value;
+            
+            const video1Id = extractVideoId(video1Url);
+            const video2Id = extractVideoId(video2Url);
+            
+            if (!video1Id || !video2Id) {
+                alert('Пожалуйста, введите корректные URL YouTube видео');
+                return;
+            }
+            
+            // Создаём плееры
+            player1 = new YT.Player('videoContainer', {
+                height: '0',
+                width: '0',
+                videoId: video1Id,
+                playerVars: {
+                    'playsinline': 1,
+                    'controls': 0,
+                    'rel': 0
+                },
+                events: {
+                    'onReady': onPlayer1Ready,
+                    'onStateChange': onPlayerStateChange
+                }
+            });
+            
+            // Создаём второй контейнер для второго плеера (скрытый)
+            const player2Container = document.createElement('div');
+            player2Container.id = 'player2Container';
+            player2Container.style.display = 'none';
+            document.body.appendChild(player2Container);
+            
+            player2 = new YT.Player('player2Container', {
+                height: '0',
+                width: '0',
+                videoId: video2Id,
+                playerVars: {
+                    'playsinline': 1,
+                    'controls': 0,
+                    'rel': 0
+                },
+                events: {
+                    'onReady': onPlayer2Ready,
+                    'onStateChange': onPlayerStateChange
+                }
+            });
+            
+            // Инициализируем canvas
+            canvas = document.getElementById('resultCanvas');
+            context = canvas.getContext('2d');
+            
+            // Показываем секцию с плеером
+            document.getElementById('playerSection').classList.remove('hidden');
+        }
+        
+        function extractVideoId(url) {
+            const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
+            const match = url.match(regExp);
+            return (match && match[7].length === 11) ? match[7] : null;
+        }
+        
+        function onPlayer1Ready(event) {
+            video1Ready = true;
+            tryToStartPlayback();
+        }
+        
+        function onPlayer2Ready(event) {
+            video2Ready = true;
+            tryToStartPlayback();
+        }
+        
+        function tryToStartPlayback() {
+            if (video1Ready && video2Ready) {
+                // Устанавливаем размер canvas на основе размера видео
+                const width = player1.getVideoData().width;
+                const height = player1.getVideoData().height;
+                canvas.width = width;
+                canvas.height = height;
+                
+                // Начинаем воспроизведение
+                player1.playVideo();
+                player2.playVideo();
+                
+                // Запускаем обработку кадров
+                processFrames();
+            }
+        }
+        
+        function onPlayerStateChange(event) {
+            // Можно добавить дополнительную логику при изменении состояния плеера
+        }
+        
+        function processFrames() {
+            if (!player1 || !player2) return;
+            
+            // Создаём временные canvas для каждого видео
+            const tempCanvas1 = document.createElement('canvas');
+            const tempContext1 = tempCanvas1.getContext('2d');
+            tempCanvas1.width = canvas.width;
+            tempCanvas1.height = canvas.height;
+            
+            const tempCanvas2 = document.createElement('canvas');
+            const tempContext2 = tempCanvas2.getContext('2d');
+            tempCanvas2.width = canvas.width;
+            tempCanvas2.height = canvas.height;
+            
+            // Функция обработки одного кадра
+            function processFrame() {
+                try {
+                    // Рисуем текущий кадр из каждого видео на временных canvas
+                    tempContext1.drawImage(player1.getIframe(), 0, 0, canvas.width, canvas.height);
+                    tempContext2.drawImage(player2.getIframe(), 0, 0, canvas.width, canvas.height);
+                    
+                    // Получаем pixel data для каждого видео
+                    const imageData1 = tempContext1.getImageData(0, 0, canvas.width, canvas.height);
+                    const imageData2 = tempContext2.getImageData(0, 0, canvas.width, canvas.height);
+                    const data1 = imageData1.data;
+                    const data2 = imageData2.data;
+                    
+                    // Создаём новый imageData для результата
+                    const resultImageData = context.createImageData(canvas.width, canvas.height);
+                    const resultData = resultImageData.data;
+                    
+                    // Применяем XOR к каждому пикселю
+                    for (let i = 0; i < data1.length; i += 4) {
+                        resultData[i] = data1[i] ^ data2[i];         // R
+                        resultData[i + 1] = data1[i + 1] ^ data2[i + 1]; // G
+                        resultData[i + 2] = data1[i + 2] ^ data2[i + 2]; // B
+                        resultData[i + 3] = 255; // Alpha (полностью непрозрачный)
+                    }
+                    
+                    // Отображаем результат на основном canvas
+                    context.putImageData(resultImageData, 0, 0);
+                    
+                    // Запрашиваем следующий кадр
+                    animationFrameId = requestAnimationFrame(processFrame);
+                } catch (e) {
+                    console.error("Ошибка обработки кадра:", e);
+                    // Пытаемся продолжить несмотря на ошибку
+                    animationFrameId = requestAnimationFrame(processFrame);
+                }
+            }
+            
+            // Запускаем обработку
+            animationFrameId = requestAnimationFrame(processFrame);
+        }
+        
+        // Очистка при закрытии/обновлении страницы
+        window.addEventListener('beforeunload', () => {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+            if (player1) {
+                player1.destroy();
+            }
+            if (player2) {
+                player2.destroy();
+            }
+        });
+    </script>
+</body>
+</html>
