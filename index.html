@@ -1,4 +1,43 @@
-﻿<!DOCTYPE html>
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -13,13 +52,13 @@
     <h1>XOR Video Player</h1>
 
     <div>
-        <label for="video1">Video 1 URL (.mp4, с CORS):</label>
-        <input type="text" id="video1" placeholder="https://example.com/video1.mp4">
+        <label for="video1">Video 1 URL (Streamable или .mp4 с CORS):</label>
+        <input type="text" id="video1" placeholder="https://streamable.com/i5l0 или https://example.com/video.mp4">
     </div>
 
     <div>
-        <label for="video2">Video 2 URL (.mp4, с CORS):</label>
-        <input type="text" id="video2" placeholder="https://example.com/video2.mp4">
+        <label for="video2">Video 2 URL (Streamable или .mp4 с CORS):</label>
+        <input type="text" id="video2" placeholder="https://streamable.com/... или https://example.com/video.mp4">
     </div>
 
     <button onclick="loadVideos()">Load Videos</button>
@@ -41,9 +80,9 @@
 
     <section>
         <h2>Как это работает:</h2>
-        <p>Этот плеер загружает два .mp4 видео с хостингов, поддерживающих CORS, и выполняет попиксельную операцию XOR для создания визуального эффекта.</p>
-        <p><strong>Важно:</strong> Используйте прямые .mp4 ссылки с хостингов, таких как Streamable, BunnyCDN или Amazon S3 с настроенным CORS. YouTube не поддерживается из-за ограничений безопасности.</p>
-        <p>Пример URL: <a href="https://streamable.com/video.mp4">Streamable</a> или <a href="https://bunnycdn.com/video.mp4">BunnyCDN</a>.</p>
+        <p>Этот плеер загружает два видео (поддерживаются Streamable или прямые .mp4 ссылки) и выполняет попиксельную операцию XOR для создания визуального эффекта.</p>
+        <p><strong>Важно:</strong> Для Streamable используйте прямые .mp4 ссылки (см. инструкции). Хостинг должен поддерживать CORS. Рекомендуемые сервисы: BunnyCDN, Amazon S3.</p>
+        <p>Для Streamable: откройте видео, нажмите правой кнопкой → Inspect → найдите &lt;video&gt; → скопируйте атрибут src.</p>
     </section>
 
     <script>
@@ -52,24 +91,54 @@
         let player1Ready = false;
         let player2Ready = false;
 
-        // Проверка валидности URL
-        function isValidMp4Url(url) {
-            const isMp4 = url.toLowerCase().endsWith('.mp4');
-            console.log(`Checking URL: ${url}, isMp4: ${isMp4}`);
-            return isMp4;
+        // Проверка валидности URL видео
+        async function isValidVideoUrl(url) {
+            console.log(`Checking URL: ${url}`);
+            const video = document.createElement('video');
+            video.crossOrigin = 'anonymous';
+            video.src = url;
+            try {
+                await new Promise((resolve, reject) => {
+                    video.addEventListener('loadedmetadata', () => resolve(true));
+                    video.addEventListener('error', () => reject(false));
+                    setTimeout(() => reject(false), 5000); // Timeout 5s
+                });
+                console.log(`URL ${url} is valid`);
+                return true;
+            } catch {
+                console.error(`URL ${url} is invalid or inaccessible`);
+                return false;
+            }
+        }
+
+        // Преобразование Streamable URL в прямую MP4-ссылку (заглушка, так как требует API)
+        function convertStreamableUrl(url) {
+            console.log(`Attempting to process Streamable URL: ${url}`);
+            const match = url.match(/streamable\.com\/([a-zA-Z0-9]+)/);
+            if (match) {
+                console.warn(`Streamable URL detected: ${url}. Please provide direct .mp4 link (right-click video → Inspect → copy <video> src).`);
+                return url; // Временная заглушка, пользователь должен вставить прямую ссылку
+            }
+            return url;
         }
 
         // Загрузка видео
-        function loadVideos() {
+        async function loadVideos() {
             console.log('loadVideos called');
-            const input1 = document.getElementById('video1').value.trim();
-            const input2 = document.getElementById('video2').value.trim();
+            let input1 = document.getElementById('video1').value.trim();
+            let input2 = document.getElementById('video2').value.trim();
             console.log('Input1:', input1);
             console.log('Input2:', input2);
 
-            if (!isValidMp4Url(input1) || !isValidMp4Url(input2)) {
-                console.error('Invalid .mp4 URLs');
-                document.getElementById('loading').innerHTML = 'Please provide valid .mp4 URLs';
+            input1 = convertStreamableUrl(input1);
+            input2 = convertStreamableUrl(input2);
+
+            const isValid1 = await isValidVideoUrl(input1);
+            const isValid2 = await isValidVideoUrl(input2);
+
+            if (!isValid1 || !isValid2) {
+                console.error('One or both URLs are invalid');
+                document.getElementById('loading').innerHTML = 'Please provide valid video URLs (.mp4 or Streamable with CORS)';
                 document.getElementById('loading').style.display = 'block';
                 return;
             }
@@ -127,7 +196,6 @@
                 console.log('Canvas found');
                 ctx = canvas.getContext('2d');
 
-                // Проверка размеров видео
                 if (player1.videoWidth !== player2.videoWidth || player1.videoHeight !== player2.videoHeight) {
                     console.warn('Videos have different sizes. Using size of first video.');
                 }
@@ -183,7 +251,6 @@
             }
 
             try {
-                // Рисуем первое видео на временный canvas
                 const tempCanvas1 = document.createElement('canvas');
                 tempCanvas1.width = canvas.width;
                 tempCanvas1.height = canvas.height;
@@ -192,7 +259,6 @@
                 const imageData1 = tempCtx1.getImageData(0, 0, canvas.width, canvas.height);
                 const data1 = imageData1.data;
 
-                // Рисуем второе видео
                 const tempCanvas2 = document.createElement('canvas');
                 tempCanvas2.width = canvas.width;
                 tempCanvas2.height = canvas.height;
@@ -201,7 +267,6 @@
                 const imageData2 = tempCtx2.getImageData(0, 0, canvas.width, canvas.height);
                 const data2 = imageData2.data;
 
-                // Выполняем XOR
                 console.log('Performing XOR operation');
                 const xorData = new Uint8ClampedArray(data1.length);
                 for (let i = 0; i < data1.length; i += 4) {
